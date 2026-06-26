@@ -1,0 +1,23 @@
+# Python 虚拟环境
+.venv/
+
+# Python 运行缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行日志
+*.log
+
+# 工具生成的 PDF 产物
+上传报告_*.pdf
+可打印报告_*.pdf
+替换完成_*.pdf
+
+# 临时文件
+*.tmp
+*.bak
+
+# 临时测试文件
+_test_*.pdf
+_t.pdf
