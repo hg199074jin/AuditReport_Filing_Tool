@@ -21,6 +21,7 @@ import io
 
 from config_manager import ConfigManager
 from pdf_common import friendly_error_msg
+from pdf_processor import PDFProcessor
 
 # 配色(沿用下载项目风格,商务蓝)
 COLORS = {
@@ -55,6 +56,13 @@ class App:
 
         # 配置管理器(印章库 + 上次记忆 + 默认页码)
         self.cfg = ConfigManager()
+
+        # PDFProcessor 实例(长期持有,用于自动识别盖章页/报表范围。
+        # 不在 step1 处理时复用,step1 处理走 step_upload 独立新建实例)
+        self.processor = PDFProcessor()
+
+        # 状态标签变量(显示自动识别结果,布局重构后引用)
+        self.stage_var = tk.StringVar(value="请选择原始报告,系统将自动识别盖章页")
 
         # —— 公共配置变量 ——
         self.original_pdf_path = tk.StringVar()
@@ -149,18 +157,23 @@ class App:
 
     # ========== 主区域 ==========
     def _build_main_area(self):
+        # 主区域:水平分两栏 —— 中间栏(公共配置+步骤) | 预览栏
         main = tk.Frame(self.root, bg=COLORS['bg_light'])
         main.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # 公共配置区(始终可见,顶部)
-        self._build_common_config(main)
+        # —— 中间栏(左,占大部分宽度) ——
+        center = tk.Frame(main, bg=COLORS['bg_light'])
+        center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
 
-        # 步骤内容容器(中部,随步骤切换)
-        self.content_container = tk.Frame(main, bg=COLORS['bg_white'])
+        # 公共配置区(始终可见,中间栏上部)
+        self._build_common_config(center)
+
+        # 步骤内容容器(中间栏下部,随步骤切换)
+        self.content_container = tk.Frame(center, bg=COLORS['bg_white'])
         self.content_container.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         self._build_step_frames()
 
-        # 预览区(底部)
+        # —— 预览栏(右,竖长条) ——
         self._build_preview_area(main)
 
     def _build_common_config(self, parent):
@@ -195,6 +208,11 @@ class App:
         tk.Label(row2, text="(1基页码,附注末页步骤③自动处理)",
                  font=FONTS['small'], fg=COLORS['text_secondary'],
                  bg=COLORS['bg_white']).pack(side=tk.LEFT, padx=10)
+
+        # 状态提示行(显示自动识别结果)
+        tk.Label(frame, textvariable=self.stage_var, font=FONTS['small'],
+                 fg=COLORS['primary'], bg=COLORS['bg_white'],
+                 anchor='w').pack(fill=tk.X, pady=(6, 0))
 
     def _build_step_frames(self):
         """构建三个步骤的内容 Frame(初始都隐藏,_show_step 控制显示)。"""
@@ -256,8 +274,8 @@ class App:
                  bg=COLORS['bg_white'], font=FONTS['body']).pack(side=tk.LEFT)
         tk.Entry(r, textvariable=self.stamp_pdf_path, font=FONTS['body'],
                  bg=COLORS['bg_light']).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        tk.Button(r, text="浏览...", command=lambda: self._browse_file(
-            self.stamp_pdf_path, [("PDF文件", "*.pdf")]), font=FONTS['body']).pack(side=tk.LEFT)
+        tk.Button(r, text="浏览...", command=self._browse_stamp_pdf,
+                  font=FONTS['body']).pack(side=tk.LEFT)
 
         # 盖章附注PDF
         r = tk.Frame(parent, bg=COLORS['bg_white']); r.pack(fill=tk.X, pady=3)
@@ -279,15 +297,26 @@ class App:
                                    bg=COLORS['bg_white'], fg=COLORS['text_primary'],
                                    justify=tk.LEFT, anchor='nw')
         self.step2_info.pack(fill=tk.X, pady=4)
-        tk.Button(parent, text="📂 打开所在文件夹", command=self._open_output_dir,
-                  font=FONTS['body'], padx=10, pady=4).pack(pady=8)
+        btn_row = tk.Frame(parent, bg=COLORS['bg_white']); btn_row.pack(fill=tk.X, pady=8)
+        tk.Button(btn_row, text="📂 打开所在文件夹", command=self._open_output_dir,
+                  font=FONTS['body'], padx=10, pady=4).pack(side=tk.LEFT)
         tk.Label(parent, text="操作指引:\n"
                  "1. 登录注协系统,上传生成的报告\n"
                  "2. 等待系统赋码完成\n"
                  "3. 下载赋码后的报告\n"
-                 "4. 回到这里点击侧边栏「③ 处理赋码版」",
+                 "4. 点击下方「下一步」进入步骤③",
                  font=FONTS['body'], bg=COLORS['bg_white'],
                  fg=COLORS['text_secondary'], justify=tk.LEFT).pack(pady=8, anchor='w')
+        # 「下一步」按钮:解除步骤③的锁定,手动推进
+        tk.Button(parent, text="▶ 下一步:处理赋码版", command=self._go_to_step3,
+                  font=FONTS['heading'], bg=COLORS['primary'], fg='white',
+                  activebackground=COLORS['primary_hover'], padx=20, pady=6).pack(pady=12)
+
+    def _go_to_step3(self):
+        """步骤②的「下一步」:解锁步骤③并跳转。"""
+        self.step_status[2] = 'done'
+        self.step_status[3] = 'active'
+        self._show_step(3)
 
     # —— 步骤③内容 ——
     def _build_step3_content(self, parent):
@@ -323,14 +352,15 @@ class App:
                   font=FONTS['heading'], bg=COLORS['primary'], fg='white',
                   activebackground=COLORS['primary_hover'], padx=20, pady=6).pack(pady=12)
 
-    # —— 预览区 ——
+    # —— 预览区(右侧独立栏,竖长条) ——
     def _build_preview_area(self, parent):
         frame = tk.LabelFrame(parent, text="PDF预览",
                               font=FONTS['heading'], bg=COLORS['bg_white'],
-                              fg=COLORS['text_primary'], padx=8, pady=8)
-        frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
+                              fg=COLORS['text_primary'], padx=8, pady=8, width=360)
+        frame.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
+        frame.pack_propagate(False)  # 固定宽度,不被内容撑开
 
-        self.preview_canvas = tk.Canvas(frame, bg='white', height=200,
+        self.preview_canvas = tk.Canvas(frame, bg='white',
                                         highlightthickness=0)
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
 
@@ -383,11 +413,95 @@ class App:
         if path:
             var.set(path)
 
+    def _browse_stamp_pdf(self):
+        """选盖章报表PDF后,自动计算报表替换范围。"""
+        path = filedialog.askopenfilename(filetypes=[("PDF文件", "*.pdf")])
+        if path:
+            self.stamp_pdf_path.set(path)
+            self._auto_calc_stamp_page_range(path)
+
     def _browse_original(self):
         path = filedialog.askopenfilename(filetypes=[("PDF文件", "*.pdf")])
         if path:
             self.original_pdf_path.set(path)
             self._load_preview(path)
+            # 自动识别盖章页(复用原上传项目逻辑)
+            self._auto_detect_seal_page()
+
+    def _auto_detect_seal_page(self):
+        """选原始报告后自动识别盖章页码(复用原上传项目逻辑)。
+
+        流程:用长期持有的 processor 加载原始PDF → find_seal_page 找盖章页 →
+        填入 seal_page_var。失败不弹错,仅状态提示,用户可手动填。
+
+        注意:这里只识别盖章页码,不做印章位置定位(新项目无预览拖拽功能,
+        印章位置在 step_upload.process_upload 内部由 PDFProcessor 自动算)。
+        """
+        path = self.original_pdf_path.get().strip()
+        if not path:
+            return
+        try:
+            if not self.processor.load_original_pdf(path):
+                self.stage_var.set("原始报告加载失败,请手动设置盖章页")
+                return
+        except Exception:
+            self.stage_var.set("原始报告加载失败,请手动设置盖章页")
+            return
+
+        try:
+            page = self.processor.find_seal_page()
+        except Exception:
+            page = None
+
+        if page is None:
+            self.stage_var.set("未自动找到盖章页,请手动设置(默认值已填)")
+            return
+
+        self.seal_page_var.set(page)
+        self.stage_var.set(f"已自动识别盖章页:第 {page} 页(可手动改)")
+        # 盖章页变了,若已选报表PDF,顺便重算报表范围
+        if self.stamp_pdf_path.get().strip():
+            self._auto_calc_stamp_page_range(self.stamp_pdf_path.get().strip())
+
+    def _auto_calc_stamp_page_range(self, stamp_pdf_path):
+        """自动计算"盖章报表替换页码范围"(复用原上传项目逻辑)。
+
+        业务规则(用户所里习惯):
+        - 标准报告盖章页后面紧跟报表首页 → 替换起始页 = 盖章页 + 1
+        - 盖章报表PDF 有几页就替换几页 → 页数 = 报表PDF总页数
+        - 替换结束页 = 起始页 + 页数 - 1
+
+        失败容错:盖章页未识别/报表PDF打开失败/范围覆盖末页 → 不自动填,退回手动。
+        """
+        try:
+            seal_page = self.seal_page_var.get()
+        except (tk.TclError, ValueError):
+            return
+        if seal_page is None or seal_page < 1:
+            return
+
+        # 读报表PDF页数(临时打开)
+        try:
+            doc = fitz.open(stamp_pdf_path)
+            n_pages = len(doc)
+            doc.close()
+        except Exception:
+            return
+        if n_pages <= 0:
+            return
+
+        start = seal_page + 1
+        end = start + n_pages - 1
+
+        # 兜底:算出的范围若覆盖原始PDF末页(留给附注),不自动填
+        total = self.processor.get_total_pages()
+        if total > 0 and end >= total:
+            self.stage_var.set(f"报表替换范围异常(算出{start}-{end}),请手动核对")
+            return
+
+        self.report_start_var.set(start)
+        self.report_end_var.set(end)
+        self.stage_var.set(f"已自动设置报表替换范围:第 {start}-{end} 页(可手动改)")
 
     def _browse_seal(self, which):
         path = filedialog.askopenfilename(
@@ -422,8 +536,11 @@ class App:
         if not (0 <= idx < self.preview_total):
             return
         page = self.preview_doc[idx]
-        # 缩放至预览区高度
-        zoom = 200.0 / page.rect.height if page.rect.height else 0.3
+        # 按预览canvas的实际宽度缩放(canvas.winfo_width 在界面未绘制时可能为1,兜底用340)
+        cw = self.preview_canvas.winfo_width()
+        if not cw or cw <= 1:
+            cw = 340
+        zoom = cw / page.rect.width if page.rect.width else 0.3
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
         img = Image.open(io.BytesIO(pix.tobytes("png")))
         self._preview_img_ref = ImageTk.PhotoImage(img)
