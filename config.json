@@ -1,0 +1,7 @@
+{
+  "# 说明": "默认页码配置,打开软件即预填。1基页码。",
+  "seal_page": 5,
+  "report_start": 6,
+  "report_end": 11,
+  "auto_add_last_page_rule": true
+}
