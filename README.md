@@ -1,12 +1,18 @@
 # 审计报告报备处理工具
 
-把原始审计报告,经过一条流水线产出**可打印的报备版报告**:
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![PyMuPDF](https://img.shields.io/badge/PyMuPDF-PDF处理-green.svg)](https://pymupdf.readthedocs.io/)
+[![Tkinter](https://img.shields.io/badge/GUI-Tkinter-orange.svg)]()
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/平台-Windows-lightgrey.svg)]()
+
+> 一条流水线把原始审计报告处理成**可打印的报备版报告**:盖章 → 上传注协赋码 → 替换盖章页并保留二维码。把原来两个独立小工具(「审计报备-上传」「审计报告-下载」)整合成一个带步骤导航的桌面软件。
 
 ```
 原始报告 → 加盖CPA/事务所章 + 拼接盖章报表/附注 → 上传注协赋码 → 替换盖章页为无章版并保留二维码 → 可打印报告
 ```
 
-把原来两个独立小工具(「审计报备-上传」「审计报告-下载」)整合成**一个带步骤导航的统一软件**。公共参数(原始报告路径、页码)只填一次,自动识别盖章页和报表范围。
+公共参数(原始报告路径、页码)只填一次,自动识别盖章页和报表范围。
 
 ---
 
